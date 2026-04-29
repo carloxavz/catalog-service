@@ -29,6 +29,33 @@ class Product(models.Model):
     def average_rating(self):
         return self.reviews.aggregate(Avg('rating'))['rating__avg'] or 0
 
+class ProductImage(models.Model):
+    product = models.ForeignKey(Product, related_name='images', on_delete=models.CASCADE)
+    image = models.ImageField(upload_to='products/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Image for {self.product.name}"
+
+    def save(self, *args, **kwargs):
+        old_image = None
+        if self.pk:
+            try:
+                old_image = ProductImage.objects.get(pk=self.pk).image
+            except ProductImage.DoesNotExist:
+                old_image = None
+
+        super().save(*args, **kwargs)
+
+        if old_image and old_image.name and old_image.name != self.image.name:
+            old_image.delete(save=False)
+
+    def delete(self, *args, **kwargs):
+        image = self.image
+        super().delete(*args, **kwargs)
+        if image:
+            image.delete(save=False)
+
 class Review(models.Model):
     product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
     user_id = models.IntegerField()  # Reference to user in login-service
