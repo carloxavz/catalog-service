@@ -19,25 +19,49 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         images = request.FILES.getlist('images')
+        
+        # Validation: Max 4 images
+        if len(images) > 4:
+            return Response(
+                {"detail": "No se pueden subir más de 4 imágenes por producto."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        product = serializer.save()
         
-        for image in images:
-            ProductImage.objects.create(product=product, image=image)
-            
-        return Response(self.get_serializer(product).data, status=status.HTTP_201_CREATED)
+        try:
+            product = serializer.save()
+            for image in images:
+                ProductImage.objects.create(product=product, image=image)
+            return Response(self.get_serializer(product).data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response(
+                {"detail": f"Error al crear el producto: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def partial_update(self, request, *args, **kwargs):
         images = request.FILES.getlist('images')
         product = self.get_object()
         
-        # If new images are provided, we might want to clear old ones or just add new ones.
-        # For simplicity, let's just add new ones.
-        for image in images:
-            ProductImage.objects.create(product=product, image=image)
+        # Validation: Max 4 images total
+        current_images_count = product.images.count()
+        if current_images_count + len(images) > 4:
+            return Response(
+                {"detail": "El producto no puede tener más de 4 imágenes en total."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
             
-        return super().partial_update(request, *args, **kwargs)
+        try:
+            for image in images:
+                ProductImage.objects.create(product=product, image=image)
+            return super().partial_update(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {"detail": f"Error al actualizar el producto: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=True, methods=['post'])
     def rate(self, request, pk=None):

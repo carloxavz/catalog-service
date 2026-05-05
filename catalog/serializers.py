@@ -30,3 +30,23 @@ class ProductSerializer(serializers.ModelSerializer):
             'category', 'category_name', 'images', 'seller_id', 
             'average_rating', 'reviews', 'created_at', 'updated_at'
         ]
+
+    def validate_name(self, value):
+        if len(value.strip()) < 3:
+            raise serializers.ValidationError("El nombre debe tener al menos 3 caracteres.")
+        return value
+
+    def validate_description(self, value):
+        if len(value.strip()) < 10:
+            raise serializers.ValidationError("La descripción debe tener al menos 10 caracteres.")
+        return value
+
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("El precio debe ser mayor que cero.")
+        return value
+
+    def validate_stock(self, value):
+        if value < 0:
+            raise serializers.ValidationError("El stock no puede ser negativo.")
+        return value
