@@ -63,6 +63,30 @@ class ProductViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['post'])
+    def bulk_reduce_stock(self, request):
+        items = request.data.get('items', [])
+        updated_products = []
+        errors = []
+        
+        for item in items:
+            product_id = item.get('product_id')
+            quantity = item.get('quantity')
+            try:
+                product = Product.objects.get(id=product_id)
+                if product.stock >= quantity:
+                    product.stock -= quantity
+                    product.save()
+                    updated_products.append(product.id)
+                else:
+                    errors.append(f"Insufficient stock for product {product_id}")
+            except Product.DoesNotExist:
+                errors.append(f"Product {product_id} not found")
+        
+        if errors:
+            return Response({"errors": errors, "updated": updated_products}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "Stock updated successfully", "updated": updated_products}, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'])
     def rate(self, request, pk=None):
         product = self.get_object()
