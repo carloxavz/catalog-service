@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from django.core.management.base import BaseCommand
+from django.db import close_old_connections
 from catalog.models import Product
 
 class Command(BaseCommand):
@@ -18,6 +19,8 @@ class Command(BaseCommand):
             channel.queue_declare(queue='order_queue', durable=True)
 
             def callback(ch, method, properties, body):
+                # Ensure a fresh DB connection for each message in long-running processes
+                close_old_connections()
                 try:
                     data = json.loads(body)
                     event = data.get('event')
