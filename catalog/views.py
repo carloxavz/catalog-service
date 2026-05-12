@@ -65,7 +65,10 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_reduce_stock(self, request):
+        import requests
+        import os
         items = request.data.get('items', [])
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://localhost:8003/api/inventory')
         updated_products = []
         errors = []
         
@@ -73,19 +76,18 @@ class ProductViewSet(viewsets.ModelViewSet):
             product_id = item.get('product_id')
             quantity = item.get('quantity')
             try:
-                product = Product.objects.get(id=product_id)
-                if product.stock >= quantity:
-                    product.stock -= quantity
-                    product.save()
-                    updated_products.append(product.id)
+                # Call inventory-service to reduce stock
+                resp = requests.post(f"{inventory_url}/{product_id}/reduce", params={"amount": quantity}, timeout=5)
+                if resp.status_code == 200:
+                    updated_products.append(product_id)
                 else:
-                    errors.append(f"Insufficient stock for product {product_id}")
-            except Product.DoesNotExist:
-                errors.append(f"Product {product_id} not found")
+                    errors.append(f"Could not reduce stock for product {product_id}: {resp.status_code}")
+            except Exception as e:
+                errors.append(f"Error calling inventory service for product {product_id}: {str(e)}")
         
         if errors:
             return Response({"errors": errors, "updated": updated_products}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"message": "Stock updated successfully", "updated": updated_products}, status=status.HTTP_200_OK)
+        return Response({"message": "Stock updated via inventory-service", "updated": updated_products}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def rate(self, request, pk=None):

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from .models import Category, Product, Review, ProductImage
+import requests
+import os
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -22,6 +24,7 @@ class ProductSerializer(serializers.ModelSerializer):
     average_rating = serializers.ReadOnlyField()
     reviews = ReviewSerializer(many=True, read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
+    stock = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -30,6 +33,16 @@ class ProductSerializer(serializers.ModelSerializer):
             'category', 'category_name', 'images', 'seller_id', 
             'average_rating', 'reviews', 'created_at', 'updated_at'
         ]
+
+    def get_stock(self, obj):
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://localhost:8003/api/inventory')
+        try:
+            resp = requests.get(f"{inventory_url}/{obj.id}/", timeout=2)
+            if resp.status_code == 200:
+                return resp.json().get('quantity', 0)
+        except Exception:
+            pass
+        return 0
 
     def validate_name(self, value):
         if len(value.strip()) < 3:
