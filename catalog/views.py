@@ -4,6 +4,9 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Category, Product, Review, ProductImage
 from .serializers import CategorySerializer, ProductSerializer, ReviewSerializer, ProductImageSerializer
+import requests
+import os
+from django.db import transaction
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
@@ -17,23 +20,38 @@ class ProductViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description']
     ordering_filters = ['price', 'created_at']
 
+    def sync_stock_to_inventory(self, product_id, quantity):
+        """Helper to sync stock value to inventory-service (Neon DB)"""
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        try:
+            # PUT en el microservicio de inventario
+            resp = requests.put(f"{inventory_url}/{product_id}", json=int(quantity), timeout=5)
+            if resp.status_code not in [200, 201]:
+                print(f"Error al sincronizar con inventario: {resp.status_code}")
+                return False
+            return True
+        except Exception as e:
+            print(f"Fallo de conexión con inventario: {str(e)}")
+            return False
+
     def create(self, request, *args, **kwargs):
         images = request.FILES.getlist('images')
         
-        # Validation: Max 4 images
-        if len(images) > 4:
-            return Response(
-                {"detail": "No se pueden subir más de 4 imágenes por producto."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         try:
-            product = serializer.save()
-            for image in images:
-                ProductImage.objects.create(product=product, image=image)
+            with transaction.atomic():
+                product = serializer.save()
+                
+                # Sincronizar Stock Inmediatamente
+                stock_value = request.data.get('stock')
+                if stock_value is not None:
+                    self.sync_stock_to_inventory(product.id, stock_value)
+
+                for image in images:
+                    ProductImage.objects.create(product=product, image=image)
+            
             return Response(self.get_serializer(product).data, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response(
@@ -45,30 +63,34 @@ class ProductViewSet(viewsets.ModelViewSet):
         images = request.FILES.getlist('images')
         product = self.get_object()
         
-        # Validation: Max 4 images total
-        current_images_count = product.images.count()
-        if current_images_count + len(images) > 4:
-            return Response(
-                {"detail": "El producto no puede tener más de 4 imágenes en total."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
         try:
-            for image in images:
-                ProductImage.objects.create(product=product, image=image)
-            return super().partial_update(request, *args, **kwargs)
+            with transaction.atomic():
+                # 1. Sincronizar Stock primero
+                stock_value = request.data.get('stock')
+                if stock_value is not None:
+                    # Empujamos el cambio al inventario (Fuente de Verdad)
+                    success = self.sync_stock_to_inventory(product.id, stock_value)
+                    if not success:
+                        return Response(
+                            {"detail": "No se pudo actualizar el inventario. El servicio no está disponible."},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE
+                        )
+
+                # 2. Guardar el resto de datos
+                for image in images:
+                    ProductImage.objects.create(product=product, image=image)
+                
+                return super().partial_update(request, *args, **kwargs)
         except Exception as e:
             return Response(
-                {"detail": f"Error al actualizar el producto: {str(e)}"}, 
+                {"detail": f"Error al actualizar: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=False, methods=['post'])
     def bulk_reduce_stock(self, request):
-        import requests
-        import os
         items = request.data.get('items', [])
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://localhost:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
         updated_products = []
         errors = []
         
@@ -76,27 +98,54 @@ class ProductViewSet(viewsets.ModelViewSet):
             product_id = item.get('product_id')
             quantity = item.get('quantity')
             try:
-                # Call inventory-service to reduce stock
+                # El inventario es el que descuenta de forma persistente
                 resp = requests.post(f"{inventory_url}/{product_id}/reduce", params={"amount": quantity}, timeout=5)
+                
                 if resp.status_code == 200:
-                    updated_products.append(product_id)
+                    # También actualizamos localmente solo como sombra/caché
+                    try:
+                        p = Product.objects.get(id=product_id)
+                        p.stock = resp.json().get('quantity', p.stock - int(quantity))
+                        p.save()
+                        updated_products.append(product_id)
+                    except Product.DoesNotExist:
+                        pass
                 else:
-                    errors.append(f"Could not reduce stock for product {product_id}: {resp.status_code}")
+                    errors.append(f"Fallo en inventario para {product_id}")
             except Exception as e:
-                errors.append(f"Error calling inventory service for product {product_id}: {str(e)}")
+                errors.append(f"Error de conexión: {str(e)}")
         
         if errors:
             return Response({"errors": errors, "updated": updated_products}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"message": "Stock updated via inventory-service", "updated": updated_products}, status=status.HTTP_200_OK)
+        return Response({"message": "Sincronización exitosa", "updated": updated_products}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def bulk_restore_stock(self, request):
+        items = request.data.get('items', [])
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        
+        for item in items:
+            product_id = item.get('product_id')
+            quantity = item.get('quantity')
+            try:
+                resp = requests.post(f"{inventory_url}/{product_id}/restore", params={"amount": quantity}, timeout=5)
+                if resp.status_code == 200:
+                    try:
+                        p = Product.objects.get(id=product_id)
+                        p.stock = resp.json().get('quantity', p.stock + int(quantity))
+                        p.save()
+                    except Product.DoesNotExist:
+                        pass
+            except Exception:
+                pass
+        
+        return Response({"message": "Restauración enviada a inventario"}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def rate(self, request, pk=None):
         product = self.get_object()
         data = request.data.copy()
         data['product'] = product.id
-        
-        # In a real microservice, we would get user_id from a JWT token
-        # For now, we expect it in the request body
         serializer = ReviewSerializer(data=data)
         if serializer.is_valid():
             serializer.save()
@@ -106,7 +155,6 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all()
     serializer_class = ReviewSerializer
-
 
 class ProductImageViewSet(viewsets.ModelViewSet):
     queryset = ProductImage.objects.all()
