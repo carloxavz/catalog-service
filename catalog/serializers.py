@@ -28,6 +28,7 @@ class ProductSerializer(serializers.ModelSerializer):
     reviews = ReviewSerializer(many=True, read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     image = serializers.SerializerMethodField()
+    seller_name = serializers.SerializerMethodField()
     
     # Stock es ahora un campo que NO se persiste en la tabla de productos del catálogo
     # pero se maneja en el serializador para comunicación con el front y el inventory-service
@@ -37,8 +38,8 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id', 'name', 'description', 'price', 'stock', 
-            'category', 'category_name', 'images', 'image', 'seller_id', 
-            'average_rating', 'reviews', 'created_at', 'updated_at'
+            'category', 'category_name', 'images', 'image', 'seller_id',
+            'seller_name', 'average_rating', 'reviews', 'created_at', 'updated_at'
         ]
 
     def get_image(self, obj):
@@ -49,6 +50,17 @@ class ProductSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(first_image.image.url)
             return first_image.image.url
         return None
+
+    def get_seller_name(self, obj):
+        auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
+        try:
+            resp = requests.get(f"{auth_url}/users/{obj.seller_id}/public", timeout=3.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get('name') or f'Vendedor #{obj.seller_id}'
+        except Exception as e:
+            logger.warning(f"No se pudo obtener nombre del vendedor {obj.seller_id}: {e}")
+        return f'Vendedor #{obj.seller_id}'
 
     def to_representation(self, instance):
         """

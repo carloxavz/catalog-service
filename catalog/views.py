@@ -152,6 +152,58 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['get'])
+    def seller_info(self, request):
+        """
+        Devuelve nombre del vendedor y sus estadísticas de ventas.
+        GET /api/products/seller_info/?seller_id=5
+        """
+        seller_id = request.query_params.get('seller_id')
+        if not seller_id:
+            return Response({'error': 'seller_id requerido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Nombre del vendedor desde Auth Service
+        auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
+        seller_name = f'Vendedor #{seller_id}'
+        try:
+            resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=3.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                seller_name = data.get('name') or seller_name
+        except Exception as e:
+            print(f"No se pudo obtener nombre del vendedor: {e}")
+
+        # 2. Productos del vendedor
+        product_ids = list(
+            Product.objects.filter(seller_id=seller_id).values_list('id', flat=True)
+        )
+
+        # 3. Estadísticas de ventas desde Order Service
+        order_url = os.getenv('ORDER_SERVICE_URL', 'http://127.0.0.1:8004/api/orders')
+        total_orders = 0
+        total_units_sold = 0
+        try:
+            ids_param = ','.join(str(pid) for pid in product_ids)
+            resp = requests.get(
+                f"{order_url}/seller_stats/",
+                params={'product_ids': ids_param},
+                timeout=5.0
+            )
+            if resp.status_code == 200:
+                stats = resp.json()
+                total_orders = stats.get('total_orders', 0)
+                total_units_sold = stats.get('total_units_sold', 0)
+        except Exception as e:
+            print(f"No se pudo obtener estadísticas de ventas: {e}")
+
+        return Response({
+            'seller_id': int(seller_id),
+            'seller_name': seller_name,
+            'total_products': len(product_ids),
+            'total_orders': total_orders,
+            'total_units_sold': total_units_sold,
+        })
+
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all()
     serializer_class = ReviewSerializer
