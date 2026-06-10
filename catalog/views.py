@@ -101,6 +101,38 @@ class ProductViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=False, methods=['post'])
+    def sync_inventory(self, request):
+        """
+        POST /api/catalog/products/sync_inventory/
+        Syncs all product stock values to inventory-service.
+        Useful when inventory-service has no records (e.g. after fresh deploy).
+        """
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        products = Product.objects.all()
+        synced = []
+        errors = []
+
+        for product in products:
+            try:
+                resp = requests.put(
+                    f"{inventory_url}/{product.id}",
+                    json=int(product.stock),
+                    timeout=5
+                )
+                if resp.status_code in [200, 201]:
+                    synced.append(product.id)
+                else:
+                    errors.append({"product_id": product.id, "status": resp.status_code})
+            except Exception as e:
+                errors.append({"product_id": product.id, "error": str(e)})
+
+        return Response({
+            "synced": len(synced),
+            "synced_ids": synced,
+            "errors": errors,
+        }, status=status.HTTP_200_OK if not errors else status.HTTP_207_MULTI_STATUS)
+
+    @action(detail=False, methods=['post'])
     def bulk_reduce_stock(self, request):
         items = request.data.get('items', [])
         inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
