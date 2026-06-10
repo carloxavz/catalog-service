@@ -75,27 +75,25 @@ class ProductSerializer(serializers.ModelSerializer):
         return f'Vendedor #{obj.seller_id}'
 
     def to_representation(self, instance):
-        """
-        FUENTE ÚNICA DE VERDAD: Siempre consultamos al microservicio de inventario.
-        """
         data = super().to_representation(instance)
-        
-        # Consultar el microservicio de inventario (Neon DB - billowing-smoke)
+
         inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
         try:
-            # Timeout generoso para asegurar la conexión con Neon
             resp = requests.get(f"{inventory_url}/{instance.id}", timeout=5.0)
             if resp.status_code == 200:
-                data['stock'] = resp.json().get('quantity', 0)
+                # Inventory has a record — use it as source of truth
+                data['stock'] = resp.json().get('quantity', instance.stock)
+            elif resp.status_code == 404:
+                # Product not yet registered in inventory (e.g. just created)
+                # Fall back to local value so the creator sees the correct stock
+                data['stock'] = instance.stock
             else:
-                # Si no existe en inventario, devolvemos 0 (no usamos el valor local)
-                data['stock'] = 0
+                data['stock'] = instance.stock
         except Exception as e:
-            logger.error(f"FALLO CRÍTICO DE SINCRONIZACIÓN: {str(e)}")
-            # En caso de error de red, mostramos 0 para evitar ventas falsas
-            # El usuario verá 'Agotado' hasta que el servicio de inventario vuelva
-            data['stock'] = 0
-        
+            logger.warning(f"Could not reach inventory-service for product {instance.id}: {e}")
+            # Fall back to local value — avoids showing 0 on network errors
+            data['stock'] = instance.stock
+
         return data
 
     def validate_name(self, value):
