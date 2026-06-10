@@ -58,10 +58,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_image(self, obj):
         first_image = obj.images.first()
-        if first_image:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(first_image.image.url)
+        if first_image and first_image.image:
+            # CloudinaryField.url devuelve la URL pública segura (https)
             return first_image.image.url
         return None
 

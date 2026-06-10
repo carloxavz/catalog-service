@@ -8,3 +8,5 @@ python-dotenv>=1.0.0
 Pillow
 pika
 requests
+cloudinary==1.40.0
+django-cloudinary-storage==0.3.0
