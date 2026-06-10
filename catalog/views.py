@@ -24,7 +24,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def sync_stock_to_inventory(self, product_id, quantity):
         """Helper to sync stock value to inventory-service (Neon DB)"""
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         try:
             # PUT en el microservicio de inventario
             resp = requests.put(f"{inventory_url}/{product_id}", json=int(quantity), timeout=5)
@@ -107,7 +107,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         Syncs all product stock values to inventory-service.
         Useful when inventory-service has no records (e.g. after fresh deploy).
         """
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         products = Product.objects.all()
         synced = []
         errors = []
@@ -135,7 +135,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def bulk_reduce_stock(self, request):
         items = request.data.get('items', [])
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         updated_products = []
         errors = []
         
@@ -167,7 +167,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def bulk_restore_stock(self, request):
         items = request.data.get('items', [])
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         
         for item in items:
             product_id = item.get('product_id')
@@ -208,7 +208,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'error': 'seller_id requerido'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 1. Nombre del vendedor desde Auth Service
-        auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
+        auth_url = os.getenv('AUTH_SERVICE_URL', 'https://microservicio-1-auth-service.onrender.com/api/auth')
         seller_name = f'Vendedor #{seller_id}'
         for attempt in range(3):
             try:
@@ -236,7 +236,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             )
 
         # 3. Estadísticas de ventas desde Order Service
-        order_url = os.getenv('ORDER_SERVICE_URL', 'http://127.0.0.1:8004/api/orders')
+        order_url = os.getenv('ORDER_SERVICE_URL', 'https://microservicio-4-order-service.onrender.com/api/orders')
         total_orders = 0
         total_units_sold = 0
         try:

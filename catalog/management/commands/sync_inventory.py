@@ -7,7 +7,7 @@ class Command(BaseCommand):
     help = 'Syncs all product stock to inventory-service'
 
     def handle(self, *args, **options):
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         products = Product.objects.all()
         self.stdout.write(f'Found {products.count()} products to sync.')
 

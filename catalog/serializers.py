@@ -81,7 +81,7 @@ class ProductSerializer(serializers.ModelSerializer):
         if seller_id in cache:
             return cache[seller_id]
 
-        auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
+        auth_url = os.getenv('AUTH_SERVICE_URL', 'https://microservicio-1-auth-service.onrender.com/api/auth')
         for attempt in range(2):
             try:
                 resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=10.0)
@@ -100,7 +100,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'http://127.0.0.1:8003/api/inventory')
+        inventory_url = os.getenv('INVENTORY_SERVICE_URL', 'https://microservicio-6-inventory-service.onrender.com/api/inventory')
         try:
             resp = requests.get(f"{inventory_url}/{instance.id}", timeout=5.0)
             if resp.status_code == 200:
