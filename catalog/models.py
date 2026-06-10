@@ -24,7 +24,15 @@ class Product(models.Model):
         default=0,
         validators=[MinValueValidator(0)]
     )
+    # Categoría principal (FK original — mantener por compatibilidad)
     category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
+    # Categorías adicionales (ManyToMany — permite múltiples)
+    categories = models.ManyToManyField(
+        Category,
+        related_name='extra_products',
+        blank=True,
+        help_text='Categorías adicionales del producto'
+    )
     seller_id = models.IntegerField()  # Reference to user in login-service
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

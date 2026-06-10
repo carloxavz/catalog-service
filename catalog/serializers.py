@@ -24,23 +24,37 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.ReadOnlyField(source='category.name')
+    # Nombres de todas las categorías (principal + adicionales)
+    all_category_names = serializers.SerializerMethodField()
+    # IDs de categorías adicionales para lectura
+    extra_category_ids = serializers.PrimaryKeyRelatedField(
+        source='categories',
+        many=True,
+        read_only=True
+    )
     average_rating = serializers.ReadOnlyField()
     reviews = ReviewSerializer(many=True, read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     image = serializers.SerializerMethodField()
     seller_name = serializers.SerializerMethodField()
     
-    # Stock es ahora un campo que NO se persiste en la tabla de productos del catálogo
-    # pero se maneja en el serializador para comunicación con el front y el inventory-service
     stock = serializers.IntegerField(required=False)
 
     class Meta:
         model = Product
         fields = [
-            'id', 'name', 'description', 'price', 'stock', 
-            'category', 'category_name', 'images', 'image', 'seller_id',
-            'seller_name', 'average_rating', 'reviews', 'created_at', 'updated_at'
+            'id', 'name', 'description', 'price', 'stock',
+            'category', 'category_name', 'extra_category_ids', 'all_category_names',
+            'images', 'image', 'seller_id', 'seller_name',
+            'average_rating', 'reviews', 'created_at', 'updated_at'
         ]
+
+    def get_all_category_names(self, obj):
+        names = [obj.category.name]
+        for cat in obj.categories.all():
+            if cat.name not in names:
+                names.append(cat.name)
+        return names
 
     def get_image(self, obj):
         first_image = obj.images.first()

@@ -11,10 +11,12 @@ from django.db import transaction
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    pagination_class = None
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    pagination_class = None
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['category', 'price', 'seller_id']
     search_fields = ['name', 'description']
@@ -36,6 +38,8 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         images = request.FILES.getlist('images')
+        # Categorías adicionales — pueden venir como lista de IDs en el FormData
+        extra_category_ids = request.data.getlist('extra_categories', [])
         
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -44,6 +48,12 @@ class ProductViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 product = serializer.save()
                 
+                # Asignar categorías adicionales
+                if extra_category_ids:
+                    from .models import Category as Cat
+                    cats = Cat.objects.filter(id__in=[int(i) for i in extra_category_ids if i])
+                    product.categories.set(cats)
+
                 # Sincronizar Stock Inmediatamente
                 stock_value = request.data.get('stock')
                 if stock_value is not None:
@@ -62,13 +72,12 @@ class ProductViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         images = request.FILES.getlist('images')
         product = self.get_object()
+        extra_category_ids = request.data.getlist('extra_categories', [])
         
         try:
             with transaction.atomic():
-                # 1. Sincronizar Stock primero
                 stock_value = request.data.get('stock')
                 if stock_value is not None:
-                    # Empujamos el cambio al inventario (Fuente de Verdad)
                     success = self.sync_stock_to_inventory(product.id, stock_value)
                     if not success:
                         return Response(
@@ -76,7 +85,15 @@ class ProductViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_503_SERVICE_UNAVAILABLE
                         )
 
-                # 2. Guardar el resto de datos
+                # Actualizar categorías adicionales si se enviaron
+                if extra_category_ids:
+                    from .models import Category as Cat
+                    cats = Cat.objects.filter(id__in=[int(i) for i in extra_category_ids if i])
+                    product.categories.set(cats)
+                elif 'extra_categories' in request.data:
+                    # Lista vacía explícita — limpiar todas las adicionales
+                    product.categories.clear()
+
                 for image in images:
                     ProductImage.objects.create(product=product, image=image)
                 
@@ -173,10 +190,17 @@ class ProductViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"No se pudo obtener nombre del vendedor: {e}")
 
-        # 2. Productos del vendedor
-        product_ids = list(
-            Product.objects.filter(seller_id=seller_id).values_list('id', flat=True)
-        )
+        # 2. Productos del vendedor o producto específico
+        product_id = request.query_params.get('product_id')
+        if product_id:
+            try:
+                product_ids = [int(product_id)]
+            except ValueError:
+                return Response({'error': 'product_id inválido'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            product_ids = list(
+                Product.objects.filter(seller_id=seller_id).values_list('id', flat=True)
+            )
 
         # 3. Estadísticas de ventas desde Order Service
         order_url = os.getenv('ORDER_SERVICE_URL', 'http://127.0.0.1:8004/api/orders')
