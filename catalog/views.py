@@ -210,13 +210,18 @@ class ProductViewSet(viewsets.ModelViewSet):
         # 1. Nombre del vendedor desde Auth Service
         auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
         seller_name = f'Vendedor #{seller_id}'
-        try:
-            resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=3.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                seller_name = data.get('name') or seller_name
-        except Exception as e:
-            print(f"No se pudo obtener nombre del vendedor: {e}")
+        for attempt in range(3):
+            try:
+                resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=10.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    seller_name = data.get('name') or seller_name
+                    break
+            except Exception as e:
+                print(f"Intento {attempt + 1} fallido para obtener nombre del vendedor {seller_id}: {e}")
+                if attempt < 2:
+                    import time
+                    time.sleep(1)
 
         # 2. Productos del vendedor o producto específico
         product_id = request.query_params.get('product_id')
@@ -236,15 +241,28 @@ class ProductViewSet(viewsets.ModelViewSet):
         total_units_sold = 0
         try:
             ids_param = ','.join(str(pid) for pid in product_ids)
-            resp = requests.get(
-                f"{order_url}/seller_stats/",
-                params={'product_ids': ids_param},
-                timeout=5.0
-            )
-            if resp.status_code == 200:
-                stats = resp.json()
-                total_orders = stats.get('total_orders', 0)
-                total_units_sold = stats.get('total_units_sold', 0)
+            for attempt in range(3):
+                try:
+                    resp = requests.get(
+                        f"{order_url}/seller_stats/",
+                        params={'product_ids': ids_param},
+                        timeout=15.0
+                    )
+                    if resp.status_code == 200:
+                        stats = resp.json()
+                        total_orders = stats.get('total_orders', 0)
+                        total_units_sold = stats.get('total_units_sold', 0)
+                        break
+                    else:
+                        print(f"Intento {attempt + 1}: seller_stats retornó {resp.status_code}")
+                except requests.exceptions.Timeout:
+                    print(f"Intento {attempt + 1}: timeout al llamar a seller_stats")
+                    if attempt < 2:
+                        import time
+                        time.sleep(2)
+                except Exception as e:
+                    print(f"Intento {attempt + 1}: error al llamar a seller_stats: {e}")
+                    break
         except Exception as e:
             print(f"No se pudo obtener estadísticas de ventas: {e}")
 

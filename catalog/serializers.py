@@ -82,14 +82,18 @@ class ProductSerializer(serializers.ModelSerializer):
             return cache[seller_id]
 
         auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
-        try:
-            resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=3.0)
-            if resp.status_code == 200:
-                name = resp.json().get('name') or f'Vendedor #{seller_id}'
-                cache[seller_id] = name  # only cache successful lookups
-                return name
-        except Exception as e:
-            logger.warning(f"No se pudo obtener nombre del vendedor {seller_id}: {e}")
+        for attempt in range(2):
+            try:
+                resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=10.0)
+                if resp.status_code == 200:
+                    name = resp.json().get('name') or f'Vendedor #{seller_id}'
+                    cache[seller_id] = name  # only cache successful lookups
+                    return name
+            except Exception as e:
+                logger.warning(f"Intento {attempt + 1} fallido para obtener nombre del vendedor {seller_id}: {e}")
+                if attempt < 1:
+                    import time
+                    time.sleep(1)
 
         return f'Vendedor #{seller_id}'  # fallback — not cached so next request retries
 
