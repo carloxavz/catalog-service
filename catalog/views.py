@@ -78,12 +78,8 @@ class ProductViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 stock_value = request.data.get('stock')
                 if stock_value is not None:
-                    success = self.sync_stock_to_inventory(product.id, stock_value)
-                    if not success:
-                        return Response(
-                            {"detail": "No se pudo actualizar el inventario. El servicio no está disponible."},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE
-                        )
+                    # Sincronizar con inventory — no bloquear si falla
+                    self.sync_stock_to_inventory(product.id, stock_value)
 
                 # Actualizar categorías adicionales si se enviaron
                 if extra_category_ids:
