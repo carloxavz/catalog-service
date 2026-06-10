@@ -78,14 +78,12 @@ class ProductSerializer(serializers.ModelSerializer):
             resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=3.0)
             if resp.status_code == 200:
                 name = resp.json().get('name') or f'Vendedor #{seller_id}'
-                cache[seller_id] = name
+                cache[seller_id] = name  # only cache successful lookups
                 return name
         except Exception as e:
             logger.warning(f"No se pudo obtener nombre del vendedor {seller_id}: {e}")
 
-        fallback = f'Vendedor #{seller_id}'
-        cache[seller_id] = fallback
-        return fallback
+        return f'Vendedor #{seller_id}'  # fallback — not cached so next request retries
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
