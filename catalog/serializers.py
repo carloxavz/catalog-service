@@ -12,10 +12,18 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = ProductImage
         fields = ['id', 'product', 'image', 'created_at']
         read_only_fields = ['created_at']
+
+    def get_image(self, obj):
+        if obj.image:
+            # CloudinaryField.url returns the full public HTTPS URL
+            return obj.image.url
+        return None
 
 class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
