@@ -49,6 +49,9 @@ class ProductSerializer(serializers.ModelSerializer):
             'average_rating', 'reviews', 'created_at', 'updated_at'
         ]
 
+    # Module-level cache: seller_id -> name, avoids repeated HTTP calls per request
+    _seller_name_cache: dict = {}
+
     def get_all_category_names(self, obj):
         names = [obj.category.name]
         for cat in obj.categories.all():
@@ -64,15 +67,25 @@ class ProductSerializer(serializers.ModelSerializer):
         return None
 
     def get_seller_name(self, obj):
+        seller_id = obj.seller_id
+        cache = ProductSerializer._seller_name_cache
+
+        if seller_id in cache:
+            return cache[seller_id]
+
         auth_url = os.getenv('AUTH_SERVICE_URL', 'http://localhost:8001/api/auth')
         try:
-            resp = requests.get(f"{auth_url}/users/{obj.seller_id}/public", timeout=3.0)
+            resp = requests.get(f"{auth_url}/users/{seller_id}/public", timeout=3.0)
             if resp.status_code == 200:
-                data = resp.json()
-                return data.get('name') or f'Vendedor #{obj.seller_id}'
+                name = resp.json().get('name') or f'Vendedor #{seller_id}'
+                cache[seller_id] = name
+                return name
         except Exception as e:
-            logger.warning(f"No se pudo obtener nombre del vendedor {obj.seller_id}: {e}")
-        return f'Vendedor #{obj.seller_id}'
+            logger.warning(f"No se pudo obtener nombre del vendedor {seller_id}: {e}")
+
+        fallback = f'Vendedor #{seller_id}'
+        cache[seller_id] = fallback
+        return fallback
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
